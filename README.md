@@ -46,29 +46,16 @@ The generated HTML relies on CSS styling to display correctly. The stylesheet `s
 
 The configuration file allows the user to customise aspects of the rendering. `config.json` in this repo is provided as an example and doesn't represent the defaults.
 
-```json
+```jsonc
 {
   "breaks": {
-    "=": {
-      "tag": "p",
-      "class": "hard-break",
-      "text": "✱ ✱ ✱"
-    },
-    "-": {
-      "tag": "p",
-      "class": "soft-break"
-    },
-    ">": {
-      "tag": "br",
-      "class": "line-break"
-    },
-    "<": {
-      
-    }
+    "=": "<p class=\"hard-break\">&#x2731; &#x2731; &#x2731;</p>",  // scene break
+    "-": "<p class=\"soft-break\"></p>",                            // break within scene
+    ">": "<br class=\"line-break\">",                               // line break
+    "<": ""                                                         // semantic, non-visible break
   },
   "small_caps_class": "small-caps"
 }
-
 ```
 
 ---

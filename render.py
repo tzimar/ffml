@@ -131,16 +131,10 @@ class RenderContext:
         pass
 
 
-@dataclass
-class BreakType:
-    tag: Optional[str]
-    class_attr: Optional[str]
-    text: Optional[str]
-
 
 @dataclass
 class RenderConfig:
-    break_types: Dict[str, BreakType] = field(default_factory=dict)
+    break_types: dict[str, str] = field(default_factory=dict)
     small_caps_class: str = "small-caps"
 
     @classmethod
@@ -151,16 +145,9 @@ class RenderConfig:
         raw = cls._load_config_file(path)
 
         return cls(
-            break_types={
-                k: BreakType(
-                    tag=v.get("tag", None),
-                    class_attr=v.get("class", None),
-                    text=v.get("text", None),
-                )
-                for k, v in cast(
-                    dict[str, dict[str, str]], raw.get("breaks", {})
-                ).items()
-            },
+            break_types=cast(
+                    dict[str, str], raw.get("breaks", {})
+                ),
             small_caps_class=raw.get("small_caps_class", cls.small_caps_class),
         )
 
@@ -343,14 +330,8 @@ def render_emphasis(emphasis: Emphasis, config: RenderConfig) -> str:
 
 
 def render_section_break(section_break: Break, config: RenderConfig) -> str:
-    for break_marker, break_type in config.break_types.items():
-        if section_break.marker == break_marker and break_type.tag is not None:
-            attrs = render_attributes(
-                [(".", break_type.class_attr)] if break_type.class_attr else []
-            )
-            return (
-                f'<{break_type.tag}{attrs}>{break_type.text or ""}</{break_type.tag}>'
-            )
+    if section_break.marker in config.break_types:
+        return config.break_types[section_break.marker]
     return ""
 
 
