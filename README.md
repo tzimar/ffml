@@ -7,15 +7,20 @@ FFML is a simple markup language combining aspects of BBCode and Markdown, desig
 * Comments (`{ Annotate your writing however you want! }`)
 * Escaped text (`` You're a `****`. ``)
 * Multiple types of breaks (scene breaks, section breaks, line breaks)
-* Marking of the first paragraph after the start of the document, after a section, or after a block.
-* Support for European em-dash delimited dialogue (`= I hate you = she said hatefully. = I despise you.`)
+* Automatic paragraph indentation
+* Support for Polish dialogue (`= I hate you = she said hatefully. = I despise you.`)
+* Metadata
+  * Todos (`{!todo write this later!!!}`)
+  * Chapter splitting (`{!chapter chapter-1}`)
 
 ## Usage
 
 ```
-usage: render.py [-h] [--output OUTPUT] [--template TEMPLATE] [--config CONFIG] [source]
+usage: render.py [-h] [--output OUTPUT] [--output-dir OUTPUT_DIR] [--template TEMPLATE]
+                 [--config CONFIG] [--suppress-todos]
+                 [source]
 
-Render a markup file to HTML
+Render an AST to HTML
 
 positional arguments:
   source                input file; reads from stdin if omitted
@@ -24,10 +29,13 @@ options:
   -h, --help            show this help message and exit
   --output OUTPUT, -o OUTPUT
                         output file; writes to stdout if omitted
+  --output-dir OUTPUT_DIR, -d OUTPUT_DIR
+                        directory for output files
   --template TEMPLATE, -t TEMPLATE
                         HTML template file with {{content}} placeholder
   --config CONFIG, -c CONFIG
                         JSON config file
+  --suppress-todos      suppress todos
 ```
 
 The generated HTML relies on CSS styling to display correctly. The stylesheet `style.css` is provided as an example.
@@ -60,7 +68,6 @@ The configuration file allows the user to customise aspects of the rendering. `c
 }
 
 ```
-
 
 ---
 
