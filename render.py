@@ -405,6 +405,75 @@ def print_todos(source_text: str, source_name: str, context_lines: int = 1) -> N
         print(f"         {todo_text}", file=sys.stderr)
         print(file=sys.stderr)
 
+@dataclass
+class WordStatistics():
+    document: int
+    chapters: dict[str, int]
+    dates: dict[str, int]
+
+def calc_stats(ast: OutlineBlock) -> WordStatistics:
+
+    def count_words(text: str) -> int:
+        return len(text.split())
+
+    def count_item_words(item: Node) -> int:
+        words = 0
+        if isinstance(item, OutlineBlock):
+            for item in item.body.items:
+                words += count_item_words(item)
+        if isinstance(item, InlineBlock):
+            words += count_item_words(item.para)
+        elif isinstance(item, Paragraph):
+            for part in item.parts:
+                if isinstance(part, Narration) or isinstance(part, Dialogue):
+                    for para_item in part.items:
+                        if isinstance(para_item, Text):
+                            words += count_words(para_item.content)
+                        elif isinstance(para_item, InlineBlock):
+                            words += count_item_words(para_item)
+                        elif isinstance(para_item, Emphasis):
+                            words += count_item_words(para_item.content)
+                        elif isinstance(para_item, Paragraph):
+                            words += count_item_words(para_item)
+        return words
+
+    stats = WordStatistics(0, {}, {})
+
+    stats.document = count_item_words(ast)
+    return stats
+
+    """ chapters: list[tuple[str | None, list[BodyItem]]] = []
+    pending_items: list[BodyItem] = []
+    current_chapter: str | None = None
+    current_items: list[BodyItem] = []
+
+    for item in ast.body.items:
+        chapter_name = chapter_name_for_item(item)
+        if chapter_name is not None:
+            if current_chapter is None and not documents and pending_items:
+                current_items = pending_items + [item]
+            else:
+                if current_items:
+                    documents.append((current_chapter, current_items))
+                current_items = [item]
+            current_chapter = chapter_name
+        elif has_end_marker(item):
+            # End marker stops the current chapter; don't include this item
+            if current_items:
+                documents.append((current_chapter, current_items))
+            current_items = []
+            current_chapter = None
+        else:
+            if current_chapter is None:
+                pending_items.append(item)
+            else:
+                current_items.append(item)
+
+    if current_chapter is None:
+        if pending_items:
+            documents.append((None, pending_items))
+    else:
+        documents.append((current_chapter, current_items)) """
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render an AST to HTML")
@@ -426,6 +495,7 @@ def main() -> int:
         action="store_true",
         help="suppress todos",
     )
+    parser.add_argument("--stat", action="store_true", help="show word count statistics")
     args = parser.parse_args()
 
     if args.source:
@@ -439,6 +509,12 @@ def main() -> int:
     config = load_config(Path(args.config)) if args.config else load_config()
 
     ast = parse(source_text)
+
+    if args.stat:
+        stats = calc_stats(ast)
+        print(f"-- Word count --")
+        print(f"  Document: {stats.document}")
+        return 0
 
     template = "{{content}}"
     template_path = get_template_path(ast)
