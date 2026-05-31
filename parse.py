@@ -9,7 +9,36 @@ import sys
 import html
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union, cast, Any
+
+@dataclass
+class FFMLConfig:
+    break_types: dict[str, str] = field(default_factory=dict[str, str])
+    emphasis_types: dict[str, str] = field(default_factory=dict[str, str])
+
+    @classmethod
+    def from_path(cls, path: Path) -> "FFMLConfig":
+        if not path.exists():
+            raise FileNotFoundError(path)
+
+        raw = cls._load_config_file(path)
+
+        return cls(
+            break_types=cast(dict[str, str], {}) | cast(
+                dict[str, str], raw.get("breaks", {})
+            ),
+            emphasis_types=cast(dict[str, str], {}) | cast(
+                dict[str, str], raw.get("emphasis", {})
+            ),
+        )
+
+    @classmethod
+    def _load_config_file(cls, path: Path) -> dict[str, Any]:
+        text = path.read_text(encoding="utf-8")
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return cast(dict[str, Any], data)
+        raise ValueError("Configuration file must contain an object at the top level")
 
 
 class ParseError(Exception):
@@ -217,7 +246,6 @@ class Parser:
         self.length = len(text)
         self.trace_enabled = trace_enabled
         self.trace_depth = 0
-        self.break_types = ["=", "-", ">", "<"]
 
     def trace_enter(self, function_name: Optional[str] = None) -> None:
         if not self.trace_enabled:
@@ -243,7 +271,7 @@ class Parser:
         indent = "--" * self.trace_depth
         print(f"{indent} NODE: {node}")
 
-    def parse_body(self) -> Body:
+    def parse_body(self, config: FFMLConfig) -> Body:
         self.trace_enter("parse_body")
         items: List[BodyItem] = []
         while True:
@@ -258,42 +286,42 @@ class Parser:
             start_snapshot = self.pos
             metadata = self.parse_metadata_items(skip_newlines=True)
             self.skip_whitespace()
-            if self.peek_break():
-                item = self.parse_break()
+            if self.peek_break(config):
+                item = self.parse_break(config)
                 if metadata:
                     item.metadata = metadata
                 items.append(item)
             elif self.peek("["):
-                item = self.parse_outline_block()
+                item = self.parse_outline_block(config)
                 if metadata:
                     item.metadata = metadata
                 items.append(item)
             else:
                 if metadata:
                     self.pos = start_snapshot
-                items.append(self.parse_paragraph())
+                items.append(self.parse_paragraph(config))
             self.skip_spaces()
             if self.peek("\n"):
                 self.advance(1)
         self.trace_exit("parse_body")
         return Body(items=items)
 
-    def parse_paragraph(self) -> Paragraph:
+    def parse_paragraph(self, config: FFMLConfig) -> Paragraph:
         self.trace_enter("parse_paragraph")
         parts: List[Node] = []
-        narration = self.parse_narration_or_dialog(boundary="=", allow_metadata_newlines=True)
+        narration = self.parse_narration_or_dialog(boundary="=", config=config, allow_metadata_newlines=True)
         parts.append(Narration(items=narration))
         while self.peek("="):
             self.advance(1)
             dialogue = self.parse_narration_or_dialog(
-                boundary="=", allow_metadata_newlines=False
+                boundary="=", config=config, allow_metadata_newlines=False
             )
             if dialogue:
                 parts.append(Dialogue(items=dialogue))
             if self.peek("="):
                 self.advance(1)
                 narration = self.parse_narration_or_dialog(
-                    boundary="=", allow_metadata_newlines=False
+                    boundary="=", config=config, allow_metadata_newlines=False
                 )
                 if narration:
                     parts.append(Narration(items=narration))
@@ -305,7 +333,7 @@ class Parser:
         return para
 
     def parse_narration_or_dialog(
-        self, boundary: str, allow_metadata_newlines: bool = True
+        self, boundary: str, config: FFMLConfig, allow_metadata_newlines: bool = True
     ) -> List[Node]:
         self.trace_enter("parse_narration_or_dialog")
         items: List[Node] = []
@@ -334,11 +362,11 @@ class Parser:
                     items.append(Text(content="", metadata=metadata))
                     continue
                 break
-            node = self.try_parse_paragraph_item(metadata)
+            node = self.try_parse_paragraph_item(config, metadata)
             if node is not None:
                 items.append(node)
                 continue
-            text_node = self.parse_text(boundary, metadata)
+            text_node = self.parse_text(boundary, config, metadata)
             if not text_node is None:
                 items.append(text_node)
                 continue
@@ -353,7 +381,7 @@ class Parser:
         self.trace_exit("parse_narration_or_dialog")
         return items
 
-    def parse_text(self, boundary: str, metadata: Optional[List[Metadata]] = None) -> Optional[Text]:
+    def parse_text(self, boundary: str, config: FFMLConfig, metadata: Optional[List[Metadata]] = None) -> Optional[Text]:
         self.trace_enter("parse_text")
         start = self.pos
         in_escaped_text = False
@@ -372,7 +400,7 @@ class Parser:
                 break
             if self.peek("<"):
                 break
-            if self.peek_emphasis_start():
+            if self.peek_emphasis_start(config):
                 break
             if self.peek("`"):
                 in_escaped_text = True
@@ -423,18 +451,18 @@ class Parser:
         self.pos = snapshot
         return result
 
-    def try_parse_paragraph_item(self, metadata: Optional[List[Metadata]] = None) -> Optional[Node]:
+    def try_parse_paragraph_item(self, config: FFMLConfig, metadata: Optional[List[Metadata]] = None) -> Optional[Node]:
         self.trace_enter("try_parse_paragraph_item")
         snapshot = self.pos
         try:
             if self.peek("<"):
-                node = self.parse_inline_block()
+                node = self.parse_inline_block(config)
                 if metadata:
                     node.metadata = metadata
                 return node
-            for marker in ["***", "**", "*", "_", "~", "$"]:
+            for marker in config.emphasis_types.keys():
                 if self.peek(marker):
-                    emphasis = self.parse_emphasis(marker)
+                    emphasis = self.parse_emphasis(marker, config)
                     if emphasis is not None:
                         if metadata:
                             emphasis.metadata = metadata
@@ -451,7 +479,7 @@ class Parser:
             self.trace_exit("try_parse_paragraph_item")
             return None
 
-    def parse_outline_block(self) -> OutlineBlock:
+    def parse_outline_block(self, config: FFMLConfig) -> OutlineBlock:
         self.trace_enter("parse_outline_block")
         self.expect("[")
         self.skip_spaces()
@@ -459,7 +487,7 @@ class Parser:
         self.skip_spaces()
         if self.peek(";"):
             self.expect(";")
-            body = self.parse_body()
+            body = self.parse_body(config)
         else:
             body = Body(items=[])
         self.skip_spaces()
@@ -467,7 +495,7 @@ class Parser:
         self.trace_exit("parse_outline_block")
         return OutlineBlock(modifiers=modifiers, body=body)
 
-    def parse_inline_block(self) -> InlineBlock:
+    def parse_inline_block(self, config: FFMLConfig) -> InlineBlock:
         self.trace_enter("parse_inline_block")
         self.expect("<")
         self.skip_spaces()
@@ -476,7 +504,7 @@ class Parser:
         if self.peek(";"):
             self.expect(";")
             self.skip_spaces()
-            para = self.parse_paragraph()
+            para = self.parse_paragraph(config)
         else:
             para = Paragraph(parts=[])
         self.skip_spaces()
@@ -484,10 +512,10 @@ class Parser:
         self.trace_exit("parse_inline_block")
         return InlineBlock(modifiers=modifiers, para=para)
 
-    def parse_break(self) -> Break:
+    def parse_break(self, config: FFMLConfig) -> Break:
         self.trace_enter("parse_break")
 
-        for break_type in self.break_types:
+        for break_type in config.break_types.keys():
             if self.peek(break_type * 3):
                 count = 0
                 while self.peek(break_type):
@@ -503,7 +531,7 @@ class Parser:
             pos=self.pos
         )
 
-    def parse_emphasis(self, marker: str) -> Optional[Emphasis]:
+    def parse_emphasis(self, marker: str, config: FFMLConfig) -> Optional[Emphasis]:
         self.trace_enter(f"parse_emphasis(marker={marker!r})")
         if not self.peek(marker):
             self.trace_exit(f"parse_emphasis(marker={marker!r})")
@@ -519,7 +547,7 @@ class Parser:
         self.advance(len(marker))
         content_text = self.text[self.pos : end_pos]
         inner_parser = Parser(content_text)
-        content_para = inner_parser.parse_paragraph()
+        content_para = inner_parser.parse_paragraph(config)
         if not inner_parser.at_eof():
             self.trace_exit(f"parse_emphasis(marker={marker!r})")
             raise ParseError(
@@ -582,11 +610,11 @@ class Parser:
         self.skip_spaces()
         return bool(re.match(r"[A-Za-z0-9_-]+", self.remaining()))
 
-    def peek_break(self) -> bool:
-        return any(self.peek(break_type * 3) for break_type in self.break_types)
+    def peek_break(self, config: FFMLConfig) -> bool:
+        return any(self.peek(break_type * 3) for break_type in config.break_types.keys())
 
-    def peek_emphasis_start(self) -> bool:
-        for marker in ["***", "**", "*", "_", "~", "$"]:
+    def peek_emphasis_start(self, config: FFMLConfig) -> bool:
+        for marker in config.emphasis_types.keys():
             if self.peek(marker):
                 try:
                     return self.find_closing_marker(marker) >= 0
@@ -633,11 +661,11 @@ class Parser:
         return self.text[self.pos :]
 
 
-def parse(text: str, trace_enabled: bool = False) -> OutlineBlock:
+def parse(text: str, config: FFMLConfig, trace_enabled: bool = False) -> OutlineBlock:
     normalised = normalise_input(text)
     parser = Parser(normalised, trace_enabled=trace_enabled)
     metadata = parser.parse_metadata_items()
-    ast = parser.parse_outline_block()
+    ast = parser.parse_outline_block(config)
     if metadata:
         ast.metadata = metadata
     return ast

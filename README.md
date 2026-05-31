@@ -54,7 +54,14 @@ The configuration file allows the user to customise aspects of the rendering. `c
     ">": "<br class=\"line-break\">",                               // line break
     "<": ""                                                         // semantic, non-visible break
   },
-  "small_caps_class": "small-caps"
+  "emphasis": {
+    "***": "<b><i>{{content}}</i></b>",
+    "**": "<b>{{content}}</b>",
+    "*": "<i>{{content}}</i>",
+    "_": "<u>{{content}}</u>",
+    "~": "<s>{{content}}</s>",
+    "$": "<span class=\"small-caps\">{{content}}</span>"
+  }
 }
 ```
 

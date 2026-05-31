@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import List, Optional, Tuple
 
 from parse import (
     Body,
@@ -22,6 +21,7 @@ from parse import (
     OutlineBlock,
     Paragraph,
     Text,
+    FFMLConfig,
     parse,
 )
 
@@ -109,7 +109,7 @@ def split_chapter_documents(ast: OutlineBlock) -> list[tuple[str | None, list[Bo
     return documents
 
 
-def render_html_documents(ast: OutlineBlock, config: RenderConfig) -> list[tuple[str | None, str]]:
+def render_html_documents(ast: OutlineBlock, config: FFMLConfig) -> list[tuple[str | None, str]]:
     document_groups = split_chapter_documents(ast)
 
     if len(document_groups) == 1 and document_groups[0][0] is None:
@@ -132,45 +132,19 @@ class RenderContext:
 
 
 
-@dataclass
-class RenderConfig:
-    break_types: dict[str, str] = field(default_factory=dict)
-    small_caps_class: str = "small-caps"
-
-    @classmethod
-    def from_path(cls, path: Path) -> "RenderConfig":
-        if not path.exists():
-            raise FileNotFoundError(path)
-
-        raw = cls._load_config_file(path)
-
-        return cls(
-            break_types=cast(
-                    dict[str, str], raw.get("breaks", {})
-                ),
-            small_caps_class=raw.get("small_caps_class", cls.small_caps_class),
-        )
-
-    @classmethod
-    def _load_config_file(cls, path: Path) -> dict[str, Any]:
-        text = path.read_text(encoding="utf-8")
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return cast(dict[str, Any], data)
-        raise ValueError("Configuration file must contain an object at the top level")
 
 
-def load_config(path: Optional[Path] = None) -> RenderConfig:
+def load_config(path: Optional[Path] = None) -> FFMLConfig:
     if path is not None:
-        return RenderConfig.from_path(path)
+        return FFMLConfig.from_path(path)
 
     if Path("config.json").exists():
-        return RenderConfig.from_path(Path("config.json"))
+        return FFMLConfig.from_path(Path("config.json"))
 
-    return RenderConfig()
+    return FFMLConfig()
 
 
-def render_html(ast: OutlineBlock, config: RenderConfig) -> str:
+def render_html(ast: OutlineBlock, config: FFMLConfig) -> str:
     ctx = RenderContext()
     return render_outline_block(ast, ctx, config, is_root=True)
 
@@ -178,7 +152,7 @@ def render_html(ast: OutlineBlock, config: RenderConfig) -> str:
 def render_outline_block(
     block: OutlineBlock,
     ctx: RenderContext,
-    config: RenderConfig,
+    config: FFMLConfig,
     is_root: bool = False,
     is_first: bool = False,
 ) -> str:
@@ -193,7 +167,7 @@ def render_outline_block(
 
 
 def render_inline_block(
-    block: InlineBlock, ctx: RenderContext, config: RenderConfig
+    block: InlineBlock, ctx: RenderContext, config: FFMLConfig
 ) -> str:
     attrs = render_attributes(block.modifiers)
     inner = render_para_content(block.para, config)
@@ -203,7 +177,7 @@ def render_inline_block(
 def render_body(
     body: Body,
     ctx: RenderContext,
-    config: RenderConfig,
+    config: FFMLConfig,
     is_first_in_parent: bool = False,
 ) -> str:
     lines: List[str] = []
@@ -229,7 +203,7 @@ def render_body(
     return "\n".join(lines)
 
 
-def render_body_inline_content(body: Body, config: RenderConfig) -> str:
+def render_body_inline_content(body: Body, config: FFMLConfig) -> str:
     parts: List[str] = []
     for item in body.items:
         if isinstance(item, Paragraph):
@@ -243,7 +217,7 @@ def render_paragraph(
     para: Paragraph,
     is_first: bool = False,
     extra_modifiers: List[Tuple[str, str]] | None = None,
-    config: RenderConfig = RenderConfig(),
+    config: FFMLConfig = FFMLConfig(),
 ) -> str:
     if not para.parts:
         return ""
@@ -260,7 +234,7 @@ def render_paragraph(
     return f"{'<br>' if is_first else ''}<p{attrs}>{content}</p>"
 
 
-def render_para_content(para: Paragraph, config: RenderConfig) -> str:
+def render_para_content(para: Paragraph, config: FFMLConfig) -> str:
     rendered_parts: List[tuple[str, str]] = []
     for part in para.parts:
         if isinstance(part, Narration):
@@ -284,17 +258,17 @@ def render_para_content(para: Paragraph, config: RenderConfig) -> str:
     return "".join(parts)
 
 
-def render_narration(narration: Narration, config: RenderConfig) -> str:
+def render_narration(narration: Narration, config: FFMLConfig) -> str:
     content = render_content_items(narration.items, config)
     return content.strip(" ")
 
 
-def render_dialogue(dialogue: Dialogue, config: RenderConfig) -> str:
+def render_dialogue(dialogue: Dialogue, config: FFMLConfig) -> str:
     content = render_content_items(dialogue.items, config)
     return content.strip(" ")
 
 
-def render_content_items(items: List[Node], config: RenderConfig) -> str:
+def render_content_items(items: List[Node], config: FFMLConfig) -> str:
     ctx = RenderContext()
     parts: List[str] = []
     for item in items:
@@ -309,27 +283,14 @@ def render_content_items(items: List[Node], config: RenderConfig) -> str:
     return "".join(parts)
 
 
-def render_emphasis(emphasis: Emphasis, config: RenderConfig) -> str:
+def render_emphasis(emphasis: Emphasis, config: FFMLConfig) -> str:
     marker = emphasis.marker
     content = render_para_content(emphasis.content, config)
 
-    if marker == "*":
-        return f"<i>{content}</i>"
-    elif marker == "**":
-        return f"<b>{content}</b>"
-    elif marker == "***":
-        return f"<b><i>{content}</i></b>"
-    elif marker == "_":
-        return f"<u>{content}</u>"
-    elif marker == "~":
-        return f"<s>{content}</s>"
-    elif marker == "$":
-        return f'<span class="{config.small_caps_class}">{content}</span>'
-    else:
-        return content
+    return config.emphasis_types[marker].replace("{{content}}", content)
 
 
-def render_section_break(section_break: Break, config: RenderConfig) -> str:
+def render_section_break(section_break: Break, config: FFMLConfig) -> str:
     if section_break.marker in config.break_types:
         return config.break_types[section_break.marker]
     return ""
@@ -524,7 +485,7 @@ def main() -> int:
 
     config = load_config(Path(args.config)) if args.config else load_config()
 
-    ast = parse(source_text)
+    ast = parse(source_text, config)
 
     if args.stat:
         stats = calc_stats(ast)
