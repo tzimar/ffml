@@ -73,4 +73,4 @@ The configuration file allows the user to customise aspects of the rendering. `c
 
 ---
 
-Input-output example pairs are provided in the `examples` directory.
+Input-output example pairs are provided in the `examples` directory. Run `test.py` to test the renderer against these pairs.
