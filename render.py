@@ -405,6 +405,110 @@ def print_todos(source_text: str, source_name: str, context_lines: int = 1) -> N
         print(f"         {todo_text}", file=sys.stderr)
         print(file=sys.stderr)
 
+@dataclass
+class WordStatistics():
+    document: int
+    chapters: dict[str, int]
+    dates: dict[str, int]
+
+def calc_stats(ast: OutlineBlock) -> WordStatistics:
+
+    def count_words(text: str) -> int:
+        return len(text.split())
+
+    def count_item_words(item: Node) -> int:
+        words = 0
+        if isinstance(item, OutlineBlock):
+            for item in item.body.items:
+                words += count_item_words(item)
+        if isinstance(item, InlineBlock):
+            words += count_item_words(item.para)
+        elif isinstance(item, Paragraph):
+            for part in item.parts:
+                if isinstance(part, Narration) or isinstance(part, Dialogue):
+                    for para_item in part.items:
+                        if isinstance(para_item, Text):
+                            words += count_words(para_item.content)
+                        elif isinstance(para_item, InlineBlock):
+                            words += count_item_words(para_item)
+                        elif isinstance(para_item, Emphasis):
+                            words += count_item_words(para_item.content)
+                        elif isinstance(para_item, Paragraph):
+                            words += count_item_words(para_item)
+        return words
+
+    stats = WordStatistics(0, {}, {})
+
+    stats.document = count_item_words(ast)
+    
+    chapters: list[tuple[str, list[BodyItem]]] = []
+    dates: list[tuple[str, list[BodyItem]]] = []
+    current_chapter: str | None = None
+    current_chapter_items: list[BodyItem] = []
+    current_date: str | None = None
+    current_date_items: list[BodyItem] = []
+
+    for item in ast.body.items:
+
+        chapter = chapter_name_for_item(item)
+
+        date = None
+        for metadata in find_metadata(item):
+            if metadata.identifier == "date" and metadata.text.strip():
+                date = metadata.text.strip()
+
+        if chapter is not None:
+            if current_chapter is None and not chapters:
+                current_chapter_items = [item]
+            else:
+                if current_chapter_items and current_chapter:
+                    chapters.append((current_chapter, current_chapter_items))
+                current_chapter_items = [item]
+            current_chapter = chapter
+        elif has_end_marker(item):
+            if current_chapter_items and current_chapter:
+                chapters.append((current_chapter, current_chapter_items))
+            current_chapter_items = []
+            current_chapter = None
+        else:
+            if current_chapter is not None:
+                current_chapter_items.append(item)
+
+        if date is not None:
+            if current_date is None and not dates:
+                current_date_items = [item]
+            else:
+                if current_date_items and current_date:
+                    dates.append((current_date, current_date_items))
+                current_date_items = [item]
+            current_date = date
+        elif has_end_marker(item):
+            if current_date_items and current_date:
+                dates.append((current_date, current_date_items))
+            current_date_items = []
+            current_date = None
+        else:
+            if current_date is not None:
+                current_date_items.append(item)
+
+    if current_chapter is not None:
+        chapters.append((current_chapter, current_chapter_items))
+
+    if current_date is not None:
+        dates.append((current_date, current_date_items))
+
+    for chapter_name, items in chapters:
+        stats.chapters[chapter_name] = sum(map(lambda i: count_item_words(i), items))
+
+    for date, items in dates:
+        stats.dates[date] = sum(map(lambda i: count_item_words(i), items))
+
+
+    
+
+    
+
+    return stats
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render an AST to HTML")
@@ -426,6 +530,7 @@ def main() -> int:
         action="store_true",
         help="suppress todos",
     )
+    parser.add_argument("--stat", action="store_true", help="show word count statistics")
     args = parser.parse_args()
 
     if args.source:
@@ -433,12 +538,35 @@ def main() -> int:
     else:
         source_text = sys.stdin.read()
 
-    if not args.suppress_todos and args.source:
+    if not args.stat and not args.suppress_todos and args.source:
         print_todos(source_text, args.source, 2)
 
     config = load_config(Path(args.config)) if args.config else load_config()
 
     ast = parse(source_text)
+
+    if args.stat:
+        stats = calc_stats(ast)
+        print(f"-- Word count --")
+        print(f"  Document: {stats.document}")
+
+        if stats.chapters:
+            print(f"  Chapters:")
+            max_name_width = max([0] + list(map(lambda k: len(k), stats.chapters)))
+            for chapter_name, words in stats.chapters.items():
+                print(f"    {chapter_name}:{' ' * (max_name_width - len(chapter_name))} {words}")
+        else:
+            print(f"  Chapters: <no chapter metadata>")
+
+        if stats.dates:
+            print(f"  Dates:")
+            max_name_width = max([0] + list(map(lambda k: len(k), stats.dates)))
+            for date, words in stats.dates.items():
+                print(f"    {date}:{' ' * (max_name_width - len(date))} {words}")
+        else:
+            print(f"  Dates:    <no date metadata>")
+
+        return 0
 
     template = "{{content}}"
     template_path = get_template_path(ast)

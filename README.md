@@ -16,8 +16,9 @@ FFML is a simple markup language combining aspects of BBCode and Markdown, desig
 ## Usage
 
 ```
-usage: render.py [-h] [--output OUTPUT] [--output-dir OUTPUT_DIR] [--template TEMPLATE]
-                 [--config CONFIG] [--suppress-todos]
+usage: render.py [-h] [--output OUTPUT] [--output-dir OUTPUT_DIR]
+                 [--template TEMPLATE] [--config CONFIG] [--suppress-todos]
+                 [--stat]
                  [source]
 
 Render an AST to HTML
@@ -36,6 +37,7 @@ options:
   --config CONFIG, -c CONFIG
                         JSON config file
   --suppress-todos      suppress todos
+  --stat                show word count statistics
 ```
 
 The generated HTML relies on CSS styling to display correctly. The stylesheet `style.css` is provided as an example.
