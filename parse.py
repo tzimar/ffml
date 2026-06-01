@@ -157,6 +157,15 @@ def normalise_text(text: str) -> str:
     for sub in subs:
         text = re.sub(sub[0], sub[1], text)
 
+    def expand_entity(m: re.Match[str]):
+        code = m.group(1)
+        if code[0] == "x":
+            return chr(int(code[1:], 16))
+        else:
+            return chr(int(code, 10))
+
+    text = re.sub(r"&#(x[a-zA-Z0-9]+|[0-9]+);", expand_entity, text)
+
     return html.escape(text)
 
 
