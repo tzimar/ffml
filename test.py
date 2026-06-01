@@ -91,5 +91,6 @@ make_test("inline_formatting", ["inline_formatting"])
 make_test("section_breaks", ["section_breaks"])
 make_test("metadata", ["metadata-the-beginning", "metadata-not-the-beginning"])
 make_test("template", ["template"])
+make_test("plugin", ["plugin"])
 
 run_tests()

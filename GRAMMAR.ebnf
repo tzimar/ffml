@@ -8,6 +8,10 @@ outline-block = "[" , attributes , [ ";" , body ] ,"]" ;
 
 inline-block = "<" , attributes , [ ";" , para ] , ">" ;
 
+plugin-outline-block = "[@" , identifier , ";" , body , "]" ;
+
+plugin-inline-block = "<@" , identifier , ";" , para , ">" ; 
+
 attributes = [ [ "!" , identifier | identifier ] , { "." , identifier } ] ;
 
 body = [ body-item , { "\n" , body-item } ] ;

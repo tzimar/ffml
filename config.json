@@ -12,5 +12,8 @@
     "_": "<u>{{content}}</u>",
     "~": "<s>{{content}}</s>",
     "$": "<span class=\"small-caps\">{{content}}</span>"
-  }
+  },
+  "plugins": [
+    "binary"
+  ]
 }

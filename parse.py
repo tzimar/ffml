@@ -9,11 +9,12 @@ import sys
 import html, html.entities
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, cast, Any, Callable, Protocol
+from typing import List, Optional, Tuple, Union, cast, Any, Protocol
 import importlib
 
 class Plugin(Protocol):
-    def after_render_text(self, s: str) -> str:
+    @classmethod
+    def after_render_text(cls, s: str) -> str:
         return s
 
 def snake_to_pascal(s: str):
@@ -36,7 +37,7 @@ class FFMLConfig:
         plugin_files = cast(list[str], raw.get("plugins", []))
 
         for plugin_file in plugin_files:
-            plugins[plugin_file] = cast(Plugin, getattr(importlib.import_module(plugin_file), snake_to_pascal(plugin_file)))
+            plugins[plugin_file] = cast(Plugin, getattr(importlib.import_module(plugin_file + "_plugin"), snake_to_pascal(plugin_file) + "Plugin"))
 
         return cls(
             break_types=cast(dict[str, str], {}) | cast(
@@ -229,6 +230,17 @@ class InlineBlock(Node):
     para: Paragraph
     metadata: List[Metadata] = field(default_factory=list)
 
+@dataclass
+class PluginOutlineBlock(Node):
+    plugin: str
+    body: Body
+    metadata: List[Metadata] = field(default_factory=list)
+
+@dataclass
+class PluginInlineBlock(Node):
+    plugin: str
+    para: Paragraph
+    metadata: List[Metadata] = field(default_factory=list)
 
 @dataclass
 class Emphasis(Node):
@@ -253,8 +265,7 @@ class Text(Node):
     metadata: List[Metadata] = field(default_factory=list)
 
 
-BodyItem = Union[OutlineBlock, Paragraph, Break]
-
+BodyItem = Union[OutlineBlock, PluginOutlineBlock, Paragraph, Break]
 
 def ast_to_dict(node):
     if isinstance(node, list):
@@ -316,6 +327,11 @@ class Parser:
             self.skip_whitespace()
             if self.peek_break(config):
                 item = self.parse_break(config)
+                if metadata:
+                    item.metadata = metadata
+                items.append(item)
+            elif self.peek("[@"):
+                item = self.parse_plugin_outline_block(config)
                 if metadata:
                     item.metadata = metadata
                 items.append(item)
@@ -483,6 +499,11 @@ class Parser:
         self.trace_enter("try_parse_paragraph_item")
         snapshot = self.pos
         try:
+            if self.peek("<@"):
+                node = self.parse_plugin_inline_block(config)
+                if metadata:
+                    node.metadata = metadata
+                return node
             if self.peek("<"):
                 node = self.parse_inline_block(config)
                 if metadata:
@@ -539,6 +560,27 @@ class Parser:
         self.expect(">")
         self.trace_exit("parse_inline_block")
         return InlineBlock(modifiers=modifiers, para=para)
+
+    def parse_plugin_outline_block(self, config: FFMLConfig) -> PluginOutlineBlock:
+        self.trace_enter("parse_plugin_outline_block")
+        self.expect("[@")
+        plugin = self.parse_identifier()
+        self.expect(";")
+        body = self.parse_body(config)
+        self.expect("]")
+        self.trace_exit("parse_plugin_outline_block")
+        return PluginOutlineBlock(plugin=plugin, body=body)
+
+    def parse_plugin_inline_block(self, config: FFMLConfig) -> PluginInlineBlock:
+        self.trace_enter("parse_plugin_outline_block")
+        self.expect("<@")
+        plugin = self.parse_identifier()
+        self.expect(";")
+        para = self.parse_paragraph(config)
+        self.expect(">")
+        self.trace_exit("parse_plugin_outline_block")
+        return PluginInlineBlock(plugin=plugin, para=para)
+
 
     def parse_break(self, config: FFMLConfig) -> Break:
         self.trace_enter("parse_break")
