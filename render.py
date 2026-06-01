@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -458,6 +459,9 @@ def main() -> int:
         "source", nargs="?", help="input file; reads from stdin if omitted"
     )
     parser.add_argument(
+        "--pwd", help="working directory"
+    )
+    parser.add_argument(
         "--output", "-o", help="output file; writes to stdout if omitted"
     )
     parser.add_argument(
@@ -474,6 +478,9 @@ def main() -> int:
     )
     parser.add_argument("--stat", action="store_true", help="show word count statistics")
     args = parser.parse_args()
+
+    if args.pwd:
+        os.chdir(args.pwd)
 
     if args.source:
         source_text = Path(args.source).read_text(encoding="utf-8")
