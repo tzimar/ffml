@@ -6,16 +6,24 @@ import dataclasses
 import json
 import re
 import sys
-import html
+import html, html.entities
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, cast, Any
-import html.entities
+from typing import List, Optional, Tuple, Union, cast, Any, Callable, Protocol
+import importlib
+
+class Plugin(Protocol):
+    def after_render_text(self, s: str) -> str:
+        return s
+
+def snake_to_pascal(s: str):
+    return "".join(w.capitalize() for w in s.split("_"))
 
 @dataclass
 class FFMLConfig:
     break_types: dict[str, str] = field(default_factory=dict[str, str])
     emphasis_types: dict[str, str] = field(default_factory=dict[str, str])
+    plugins: dict[str, Plugin] = field(default_factory=dict[str,Plugin])
 
     @classmethod
     def from_path(cls, path: Path) -> "FFMLConfig":
@@ -24,6 +32,12 @@ class FFMLConfig:
 
         raw = cls._load_config_file(path)
 
+        plugins: dict[str, Plugin] = {}
+        plugin_files = cast(list[str], raw.get("plugins", []))
+
+        for plugin_file in plugin_files:
+            plugins[plugin_file] = cast(Plugin, getattr(importlib.import_module(plugin_file), snake_to_pascal(plugin_file)))
+
         return cls(
             break_types=cast(dict[str, str], {}) | cast(
                 dict[str, str], raw.get("breaks", {})
@@ -31,6 +45,7 @@ class FFMLConfig:
             emphasis_types=cast(dict[str, str], {}) | cast(
                 dict[str, str], raw.get("emphasis", {})
             ),
+            plugins=plugins
         )
 
     @classmethod

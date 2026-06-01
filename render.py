@@ -129,7 +129,7 @@ def render_html_documents(ast: OutlineBlock, config: FFMLConfig) -> list[tuple[s
 class RenderContext:
 
     def __init__(self) -> None:
-        pass
+        self.active_plugins: list[str] = []
 
 
 
@@ -274,7 +274,7 @@ def render_content_items(items: List[Node], config: FFMLConfig) -> str:
     parts: List[str] = []
     for item in items:
         if isinstance(item, Text):
-            parts.append(item.content)
+            parts.append(render_text(item, config))
         elif isinstance(item, InlineBlock):
             parts.append(render_inline_block(item, ctx, config))
         elif isinstance(item, Emphasis):
@@ -283,6 +283,11 @@ def render_content_items(items: List[Node], config: FFMLConfig) -> str:
             parts.append(render_para_content(item, config))
     return "".join(parts)
 
+def render_text(text: Text, config: FFMLConfig) -> str:
+    c = text.content
+    for plugin in config.plugins.values():
+        c = plugin.after_render_text(c)
+    return c
 
 def render_emphasis(emphasis: Emphasis, config: FFMLConfig) -> str:
     marker = emphasis.marker
