@@ -10,6 +10,7 @@ import html
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple, Union, cast, Any
+import html.entities
 
 @dataclass
 class FFMLConfig:
@@ -159,12 +160,15 @@ def normalise_text(text: str) -> str:
 
     def expand_entity(m: re.Match[str]):
         code = m.group(1)
-        if code[0] == "x":
-            return chr(int(code[1:], 16))
+        if code[0] == "#":
+            if code[1] == "x":
+                return chr(int(code[2:], 16))
+            else:
+                return chr(int(code[1:], 10))
         else:
-            return chr(int(code, 10))
+            return chr(html.entities.name2codepoint[code])
 
-    text = re.sub(r"&#(x[a-zA-Z0-9]+|[0-9]+);", expand_entity, text)
+    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+|[a-zA-Z]+);", expand_entity, text)
 
     return html.escape(text)
 
