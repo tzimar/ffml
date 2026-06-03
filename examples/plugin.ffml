@@ -2,4 +2,6 @@
     hello i am margo
 ]
 
-[@braille;dddddd d dd ]
+<@braille;hello i am margo>
+
+<@calc;`30 * 600`>

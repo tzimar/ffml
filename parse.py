@@ -6,19 +6,29 @@ import dataclasses
 import json
 import re
 import sys
-import html, html.entities
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple, Union, cast, Any, Protocol
-import importlib
+import importlib, importlib.util
 
 class Plugin(Protocol):
+    @classmethod
+    def after_render(cls, html: str) -> str:
+        return html
+
+    @classmethod
+    def before_render_text(cls, s: str) -> str:
+        return s
+
     @classmethod
     def after_render_text(cls, s: str) -> str:
         return s
 
 def snake_to_pascal(s: str):
     return "".join(w.capitalize() for w in s.split("_"))
+
+def pascal_to_snake(s: str):
+    return re.sub(r"(.)([A-Z])", "\1-\2", s).lower()
 
 @dataclass
 class FFMLConfig:
@@ -34,11 +44,17 @@ class FFMLConfig:
         raw = cls._load_config_file(path)
 
         plugins: dict[str, Plugin] = {}
-        plugin_files = cast(list[str], raw.get("plugins", []))
 
-        for plugin_file in plugin_files:
-            plugins[plugin_file] = cast(Plugin, getattr(importlib.import_module(plugin_file + "_plugin"), snake_to_pascal(plugin_file) + "Plugin"))
-
+        for plugin_file in Path("plugins/").glob("*.py"):
+            spec = importlib.util.spec_from_file_location(plugin_file.stem, plugin_file)
+            if spec is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            if spec.loader is None:
+                continue
+            spec.loader.exec_module(module)
+            plugins |= {pascal_to_snake(k[:-len("Plugin")]): cast(Plugin, v) for k, v in vars(module).items() if k[-len("Plugin"):] == "Plugin" and k != "Plugin"}
+            
         return cls(
             break_types=cast(dict[str, str], {}) | cast(
                 dict[str, str], raw.get("breaks", {})
@@ -158,35 +174,6 @@ def normalise_input(text: str) -> str:
     return text
 
 
-def normalise_text(text: str) -> str:
-    subs = [
-        (r"`", r""),
-        (r"\.\.\.", r"…"),
-        (r'"(.*?)"', r"“\1”"),
-        (r"\'", r"’"),
-        (r"---", r"—"),
-        (r"--", r"–"),
-        (r" - ", r" – "),
-        # ( r'- ', r'– ' ),
-        # ( r'-$', r'–' ),
-    ]
-
-    for sub in subs:
-        text = re.sub(sub[0], sub[1], text)
-
-    def expand_entity(m: re.Match[str]):
-        code = m.group(1)
-        if code[0] == "#":
-            if code[1] == "x":
-                return chr(int(code[2:], 16))
-            else:
-                return chr(int(code[1:], 10))
-        else:
-            return chr(html.entities.name2codepoint[code])
-
-    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+|[a-zA-Z]+);", expand_entity, text)
-
-    return html.escape(text)
 
 
 @dataclass
@@ -453,7 +440,7 @@ class Parser:
             self.trace_exit("parse_text")
             return None
         self.trace_exit("parse_text")
-        return Text(content=normalise_text(self.text[start : self.pos]), metadata=metadata or [])
+        return Text(content=self.text[start : self.pos], metadata=metadata or [])
 
     def parse_metadata_item(self) -> Metadata:
         self.trace_enter("parse_metadata_item")

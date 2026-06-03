@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import sys
 import os
+import re
+import json
+import html, html.entities
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -25,6 +28,7 @@ from parse import (
     Paragraph,
     Text,
     FFMLConfig,
+    ast_to_dict,
     parse,
 )
 
@@ -184,6 +188,18 @@ def render_plugin_outline_block(
 ) -> str:
     ctx.active_plugins.append(block.plugin)
     inner = render_body(block.body, ctx, config, is_first_in_parent=is_first)
+    inner = config.plugins[block.plugin].after_render(inner)
+    ctx.active_plugins.pop()
+    return inner
+
+def render_plugin_inline_block(
+    block: PluginInlineBlock,
+    ctx: RenderContext,
+    config: FFMLConfig,
+) -> str:
+    ctx.active_plugins.append(block.plugin)
+    inner = render_para_content(block.para, ctx, config)
+    inner = config.plugins[block.plugin].after_render(inner)
     ctx.active_plugins.pop()
     return inner
 
@@ -295,17 +311,61 @@ def render_content_items(items: List[Node], ctx: RenderContext, config: FFMLConf
             parts.append(render_text(item, ctx, config))
         elif isinstance(item, InlineBlock):
             parts.append(render_inline_block(item, ctx, config))
+        elif isinstance(item, PluginInlineBlock):
+            parts.append(render_plugin_inline_block(item, ctx, config))
         elif isinstance(item, Emphasis):
             parts.append(render_emphasis(item, ctx, config))
         elif isinstance(item, Paragraph):
             parts.append(render_para_content(item, ctx, config))
     return "".join(parts)
 
-def render_text(text: Text, ctx: RenderContext, config: FFMLConfig) -> str:
-    c = text.content
+entities: dict[str, str] = {
+    'bigblacksquare': '\u25a0',
+    "bigblacktriangle": '\u25b2'
+}
+
+def render_text(_text: Text, ctx: RenderContext, config: FFMLConfig) -> str:
+
+    text: str = _text.content
+
     for plugin in ctx.active_plugins[::-1]:
-        c = config.plugins[plugin].after_render_text(c)
-    return c
+        text = config.plugins[plugin].before_render_text(text)
+
+    subs = [
+        (r"`", r""),
+        (r"\.\.\.", r"…"),
+        (r'"(.*?)"', r"“\1”"),
+        (r"\'", r"’"),
+        (r"---", r"—"),
+        (r"--", r"–"),
+        (r" - ", r" – "),
+        # ( r'- ', r'– ' ),
+        # ( r'-$', r'–' ),
+    ]
+
+    for sub in subs:
+        text = re.sub(sub[0], sub[1], text)
+
+    def expand_entity(m: re.Match[str]):
+        code = m.group(1)
+        if code[0] == "#":
+            if code[1] == "x":
+                return chr(int(code[2:], 16))
+            else:
+                return chr(int(code[1:], 10))
+        else:
+            if (code + ";") in html.entities.html5:
+                return html.entities.html5[code + ";"]
+            else:
+                return entities[code]
+
+    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+|[a-zA-Z]+);", expand_entity, text)
+    text = html.escape(text)
+
+    for plugin in ctx.active_plugins[::-1]:
+        text = config.plugins[plugin].after_render_text(text)
+
+    return text
 
 def render_emphasis(emphasis: Emphasis, ctx: RenderContext, config: FFMLConfig) -> str:
     marker = emphasis.marker
