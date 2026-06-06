@@ -319,10 +319,6 @@ def render_content_items(items: List[Node], ctx: RenderContext, config: FFMLConf
             parts.append(render_para_content(item, ctx, config))
     return "".join(parts)
 
-entities: dict[str, str] = {
-    'bigblacksquare': '\u25a0',
-    "bigblacktriangle": '\u25b2'
-}
 
 def render_text(_text: Text, ctx: RenderContext, config: FFMLConfig) -> str:
 
@@ -354,12 +350,15 @@ def render_text(_text: Text, ctx: RenderContext, config: FFMLConfig) -> str:
             else:
                 return chr(int(code[1:], 10))
         else:
-            if (code + ";") in html.entities.html5:
+            if code in config.entities:
+                return config.entities[code]
+            elif (code + ";") in html.entities.html5:
                 return html.entities.html5[code + ";"]
             else:
-                return entities[code]
+                return "\ufffd"
 
-    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+|[a-zA-Z]+);", expand_entity, text)
+    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+|[0-9a-zA-Z-]+);", expand_entity, text)
+    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+);", expand_entity, text)
     text = html.escape(text)
 
     for plugin in ctx.active_plugins[::-1]:

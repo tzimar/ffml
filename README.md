@@ -52,7 +52,8 @@ The configuration file allows the user to customise aspects of the rendering. `c
     "=": "<p class=\"hard-break\">&#x2731; &#x2731; &#x2731;</p>",  // scene break
     "-": "<p class=\"soft-break\"></p>",                            // break within scene
     ">": "<br class=\"line-break\">",                               // line break
-    "<": ""                                                         // semantic, non-visible break
+    "<": "",                                                        // semantic, non-visible break
+    "_": "<hr>"                                                     // divider break
   },
   "emphasis": {
     "***": "<b><i>{{content}}</i></b>",
@@ -61,6 +62,10 @@ The configuration file allows the user to customise aspects of the rendering. `c
     "_": "<u>{{content}}</u>",
     "~": "<s>{{content}}</s>",
     "$": "<span class=\"small-caps\">{{content}}</span>"
+  },
+  "entities": {
+    "egyptian-cat": "&#x130e0;",
+    "zwsp": "&#x200b;"
   }
 }
 ```

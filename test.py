@@ -92,5 +92,6 @@ make_test("section_breaks", ["section_breaks"])
 make_test("metadata", ["metadata-the-beginning", "metadata-not-the-beginning"])
 make_test("template", ["template"])
 make_test("plugin", ["plugin"])
+make_test("entities", ["entities"])
 
 run_tests()

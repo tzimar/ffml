@@ -35,6 +35,7 @@ class FFMLConfig:
     break_types: dict[str, str] = field(default_factory=dict[str, str])
     emphasis_types: dict[str, str] = field(default_factory=dict[str, str])
     plugins: dict[str, Plugin] = field(default_factory=dict[str,Plugin])
+    entities: dict[str, str] = field(default_factory=dict[str, str])
 
     @classmethod
     def from_path(cls, path: Path) -> "FFMLConfig":
@@ -62,7 +63,10 @@ class FFMLConfig:
             emphasis_types=cast(dict[str, str], {}) | cast(
                 dict[str, str], raw.get("emphasis", {})
             ),
-            plugins=plugins
+            plugins=plugins,
+            entities=cast(dict[str, str], {}) | cast(
+                dict[str, str], raw.get("entities", {})
+            )
         )
 
     @classmethod

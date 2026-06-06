@@ -13,5 +13,9 @@
     "_": "<u>{{content}}</u>",
     "~": "<s>{{content}}</s>",
     "$": "<span class=\"small-caps\">{{content}}</span>"
+  },
+  "entities": {
+    "egyptian-cat": "&#x130e0;",
+    "zwsp": "&#x200b;"
   }
 }
