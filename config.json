@@ -3,7 +3,8 @@
     "=": "<p class=\"hard-break\">✱ ✱ ✱</p>",
     "-": "<p class=\"soft-break\"></p>",
     ">": "<br class=\"line-break\">",
-    "<": ""
+    "<": "",
+    "_": "<hr>"
   },
   "emphasis": {
     "***": "<b><i>{{content}}</i></b>",

@@ -1,0 +1,7 @@
+[@binary;
+    hello i am margo
+]
+
+<@braille;hello i am margo>
+
+<@calc;`30 * 600`>

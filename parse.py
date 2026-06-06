@@ -6,16 +6,35 @@ import dataclasses
 import json
 import re
 import sys
-import html
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple, Union, cast, Any
-import html.entities
+from typing import List, Optional, Tuple, Union, cast, Any, Protocol
+import importlib, importlib.util
+
+class Plugin(Protocol):
+    @classmethod
+    def after_render(cls, html: str) -> str:
+        return html
+
+    @classmethod
+    def before_render_text(cls, s: str) -> str:
+        return s
+
+    @classmethod
+    def after_render_text(cls, s: str) -> str:
+        return s
+
+def snake_to_pascal(s: str):
+    return "".join(w.capitalize() for w in s.split("_"))
+
+def pascal_to_snake(s: str):
+    return re.sub(r"(.)([A-Z])", "\1-\2", s).lower()
 
 @dataclass
 class FFMLConfig:
     break_types: dict[str, str] = field(default_factory=dict[str, str])
     emphasis_types: dict[str, str] = field(default_factory=dict[str, str])
+    plugins: dict[str, Plugin] = field(default_factory=dict[str,Plugin])
 
     @classmethod
     def from_path(cls, path: Path) -> "FFMLConfig":
@@ -24,6 +43,18 @@ class FFMLConfig:
 
         raw = cls._load_config_file(path)
 
+        plugins: dict[str, Plugin] = {}
+
+        for plugin_file in Path("plugins/").glob("*.py"):
+            spec = importlib.util.spec_from_file_location(plugin_file.stem, plugin_file)
+            if spec is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            if spec.loader is None:
+                continue
+            spec.loader.exec_module(module)
+            plugins |= {pascal_to_snake(k[:-len("Plugin")]): cast(Plugin, v) for k, v in vars(module).items() if k[-len("Plugin"):] == "Plugin" and k != "Plugin"}
+            
         return cls(
             break_types=cast(dict[str, str], {}) | cast(
                 dict[str, str], raw.get("breaks", {})
@@ -31,6 +62,7 @@ class FFMLConfig:
             emphasis_types=cast(dict[str, str], {}) | cast(
                 dict[str, str], raw.get("emphasis", {})
             ),
+            plugins=plugins
         )
 
     @classmethod
@@ -142,35 +174,6 @@ def normalise_input(text: str) -> str:
     return text
 
 
-def normalise_text(text: str) -> str:
-    subs = [
-        (r"`", r""),
-        (r"\.\.\.", r"…"),
-        (r'"(.*?)"', r"“\1”"),
-        (r"\'", r"’"),
-        (r"---", r"—"),
-        (r"--", r"–"),
-        (r" - ", r" – "),
-        # ( r'- ', r'– ' ),
-        # ( r'-$', r'–' ),
-    ]
-
-    for sub in subs:
-        text = re.sub(sub[0], sub[1], text)
-
-    def expand_entity(m: re.Match[str]):
-        code = m.group(1)
-        if code[0] == "#":
-            if code[1] == "x":
-                return chr(int(code[2:], 16))
-            else:
-                return chr(int(code[1:], 10))
-        else:
-            return chr(html.entities.name2codepoint[code])
-
-    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+|[a-zA-Z]+);", expand_entity, text)
-
-    return html.escape(text)
 
 
 @dataclass
@@ -214,6 +217,17 @@ class InlineBlock(Node):
     para: Paragraph
     metadata: List[Metadata] = field(default_factory=list)
 
+@dataclass
+class PluginOutlineBlock(Node):
+    plugin: str
+    body: Body
+    metadata: List[Metadata] = field(default_factory=list)
+
+@dataclass
+class PluginInlineBlock(Node):
+    plugin: str
+    para: Paragraph
+    metadata: List[Metadata] = field(default_factory=list)
 
 @dataclass
 class Emphasis(Node):
@@ -238,8 +252,7 @@ class Text(Node):
     metadata: List[Metadata] = field(default_factory=list)
 
 
-BodyItem = Union[OutlineBlock, Paragraph, Break]
-
+BodyItem = Union[OutlineBlock, PluginOutlineBlock, Paragraph, Break]
 
 def ast_to_dict(node):
     if isinstance(node, list):
@@ -301,6 +314,11 @@ class Parser:
             self.skip_whitespace()
             if self.peek_break(config):
                 item = self.parse_break(config)
+                if metadata:
+                    item.metadata = metadata
+                items.append(item)
+            elif self.peek("[@"):
+                item = self.parse_plugin_outline_block(config)
                 if metadata:
                     item.metadata = metadata
                 items.append(item)
@@ -422,7 +440,7 @@ class Parser:
             self.trace_exit("parse_text")
             return None
         self.trace_exit("parse_text")
-        return Text(content=normalise_text(self.text[start : self.pos]), metadata=metadata or [])
+        return Text(content=self.text[start : self.pos], metadata=metadata or [])
 
     def parse_metadata_item(self) -> Metadata:
         self.trace_enter("parse_metadata_item")
@@ -468,6 +486,11 @@ class Parser:
         self.trace_enter("try_parse_paragraph_item")
         snapshot = self.pos
         try:
+            if self.peek("<@"):
+                node = self.parse_plugin_inline_block(config)
+                if metadata:
+                    node.metadata = metadata
+                return node
             if self.peek("<"):
                 node = self.parse_inline_block(config)
                 if metadata:
@@ -524,6 +547,27 @@ class Parser:
         self.expect(">")
         self.trace_exit("parse_inline_block")
         return InlineBlock(modifiers=modifiers, para=para)
+
+    def parse_plugin_outline_block(self, config: FFMLConfig) -> PluginOutlineBlock:
+        self.trace_enter("parse_plugin_outline_block")
+        self.expect("[@")
+        plugin = self.parse_identifier()
+        self.expect(";")
+        body = self.parse_body(config)
+        self.expect("]")
+        self.trace_exit("parse_plugin_outline_block")
+        return PluginOutlineBlock(plugin=plugin, body=body)
+
+    def parse_plugin_inline_block(self, config: FFMLConfig) -> PluginInlineBlock:
+        self.trace_enter("parse_plugin_outline_block")
+        self.expect("<@")
+        plugin = self.parse_identifier()
+        self.expect(";")
+        para = self.parse_paragraph(config)
+        self.expect(">")
+        self.trace_exit("parse_plugin_outline_block")
+        return PluginInlineBlock(plugin=plugin, para=para)
+
 
     def parse_break(self, config: FFMLConfig) -> Break:
         self.trace_enter("parse_break")

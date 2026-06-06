@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import sys
 import os
+import re
+import json
+import html, html.entities
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -16,13 +19,16 @@ from parse import (
     Dialogue,
     Emphasis,
     InlineBlock,
+    PluginInlineBlock,
     Metadata,
     Narration,
     Node,
     OutlineBlock,
+    PluginOutlineBlock,
     Paragraph,
     Text,
     FFMLConfig,
+    ast_to_dict,
     parse,
 )
 
@@ -129,7 +135,7 @@ def render_html_documents(ast: OutlineBlock, config: FFMLConfig) -> list[tuple[s
 class RenderContext:
 
     def __init__(self) -> None:
-        pass
+        self.active_plugins: list[str] = []
 
 
 
@@ -171,9 +177,31 @@ def render_inline_block(
     block: InlineBlock, ctx: RenderContext, config: FFMLConfig
 ) -> str:
     attrs = render_attributes(block.modifiers)
-    inner = render_para_content(block.para, config)
+    inner = render_para_content(block.para, ctx, config)
     return f"<span{attrs}>{inner}</span>"
 
+def render_plugin_outline_block(
+    block: PluginOutlineBlock,
+    ctx: RenderContext,
+    config: FFMLConfig,
+    is_first: bool = False,
+) -> str:
+    ctx.active_plugins.append(block.plugin)
+    inner = render_body(block.body, ctx, config, is_first_in_parent=is_first)
+    inner = config.plugins[block.plugin].after_render(inner)
+    ctx.active_plugins.pop()
+    return inner
+
+def render_plugin_inline_block(
+    block: PluginInlineBlock,
+    ctx: RenderContext,
+    config: FFMLConfig,
+) -> str:
+    ctx.active_plugins.append(block.plugin)
+    inner = render_para_content(block.para, ctx, config)
+    inner = config.plugins[block.plugin].after_render(inner)
+    ctx.active_plugins.pop()
+    return inner
 
 def render_body(
     body: Body,
@@ -186,13 +214,19 @@ def render_body(
 
     for item in body.items:
         if isinstance(item, Paragraph):
-            html = render_paragraph(item, is_first_item, None, config)
+            html = render_paragraph(item, is_first_item, None, ctx, config)
             if html:
                 lines.append(html)
                 is_first_item = False
         if isinstance(item, OutlineBlock):
             html = render_outline_block(
                 item, ctx, config, is_root=False, is_first=is_first_item
+            )
+            lines.append(html)
+            is_first_item = True
+        if isinstance(item, PluginOutlineBlock):
+            html = render_plugin_outline_block(
+                item, ctx, config, is_first=is_first_item
             )
             lines.append(html)
             is_first_item = True
@@ -204,11 +238,11 @@ def render_body(
     return "\n".join(lines)
 
 
-def render_body_inline_content(body: Body, config: FFMLConfig) -> str:
+def render_body_inline_content(body: Body, ctx: RenderContext, config: FFMLConfig) -> str:
     parts: List[str] = []
     for item in body.items:
         if isinstance(item, Paragraph):
-            parts.append(render_para_content(item, config))
+            parts.append(render_para_content(item, ctx, config))
         elif isinstance(item, Break):
             parts.append(render_section_break(item, config))
     return "".join(parts)
@@ -217,13 +251,14 @@ def render_body_inline_content(body: Body, config: FFMLConfig) -> str:
 def render_paragraph(
     para: Paragraph,
     is_first: bool = False,
-    extra_modifiers: List[Tuple[str, str]] | None = None,
+    extra_modifiers: List[Tuple[str, str]] | None = None, 
+    ctx: RenderContext = RenderContext(),
     config: FFMLConfig = FFMLConfig(),
 ) -> str:
     if not para.parts:
         return ""
 
-    content = render_para_content(para, config)
+    content = render_para_content(para, ctx, config)
     if not content.strip():
         return ""
 
@@ -235,14 +270,14 @@ def render_paragraph(
     return f"{'<br>' if is_first else ''}<p{attrs}>{content}</p>"
 
 
-def render_para_content(para: Paragraph, config: FFMLConfig) -> str:
+def render_para_content(para: Paragraph, ctx: RenderContext, config: FFMLConfig) -> str:
     rendered_parts: List[tuple[str, str]] = []
     for part in para.parts:
         if isinstance(part, Narration):
-            content = render_narration(part, config)
+            content = render_narration(part, ctx, config)
             rendered_parts.append(("narration", content))
         elif isinstance(part, Dialogue):
-            content = render_dialogue(part, config)
+            content = render_dialogue(part, ctx, config)
             if content:
                 rendered_parts.append(("dialogue", content))
 
@@ -259,34 +294,82 @@ def render_para_content(para: Paragraph, config: FFMLConfig) -> str:
     return "".join(parts)
 
 
-def render_narration(narration: Narration, config: FFMLConfig) -> str:
-    content = render_content_items(narration.items, config)
+def render_narration(narration: Narration, ctx: RenderContext, config: FFMLConfig) -> str:
+    content = render_content_items(narration.items, ctx, config)
     return content.strip(" ")
 
 
-def render_dialogue(dialogue: Dialogue, config: FFMLConfig) -> str:
-    content = render_content_items(dialogue.items, config)
+def render_dialogue(dialogue: Dialogue, ctx: RenderContext, config: FFMLConfig) -> str:
+    content = render_content_items(dialogue.items, ctx, config)
     return content.strip(" ")
 
 
-def render_content_items(items: List[Node], config: FFMLConfig) -> str:
-    ctx = RenderContext()
+def render_content_items(items: List[Node], ctx: RenderContext, config: FFMLConfig) -> str:
     parts: List[str] = []
     for item in items:
         if isinstance(item, Text):
-            parts.append(item.content)
+            parts.append(render_text(item, ctx, config))
         elif isinstance(item, InlineBlock):
             parts.append(render_inline_block(item, ctx, config))
+        elif isinstance(item, PluginInlineBlock):
+            parts.append(render_plugin_inline_block(item, ctx, config))
         elif isinstance(item, Emphasis):
-            parts.append(render_emphasis(item, config))
+            parts.append(render_emphasis(item, ctx, config))
         elif isinstance(item, Paragraph):
-            parts.append(render_para_content(item, config))
+            parts.append(render_para_content(item, ctx, config))
     return "".join(parts)
 
+entities: dict[str, str] = {
+    'bigblacksquare': '\u25a0',
+    "bigblacktriangle": '\u25b2'
+}
 
-def render_emphasis(emphasis: Emphasis, config: FFMLConfig) -> str:
+def render_text(_text: Text, ctx: RenderContext, config: FFMLConfig) -> str:
+
+    text: str = _text.content
+
+    for plugin in ctx.active_plugins[::-1]:
+        text = config.plugins[plugin].before_render_text(text)
+
+    subs = [
+        (r"`", r""),
+        (r"\.\.\.", r"…"),
+        (r'"(.*?)"', r"“\1”"),
+        (r"\'", r"’"),
+        (r"---", r"—"),
+        (r"--", r"–"),
+        (r" - ", r" – "),
+        # ( r'- ', r'– ' ),
+        # ( r'-$', r'–' ),
+    ]
+
+    for sub in subs:
+        text = re.sub(sub[0], sub[1], text)
+
+    def expand_entity(m: re.Match[str]):
+        code = m.group(1)
+        if code[0] == "#":
+            if code[1] == "x":
+                return chr(int(code[2:], 16))
+            else:
+                return chr(int(code[1:], 10))
+        else:
+            if (code + ";") in html.entities.html5:
+                return html.entities.html5[code + ";"]
+            else:
+                return entities[code]
+
+    text = re.sub(r"&(#x[a-zA-Z0-9]+|#[0-9]+|[a-zA-Z]+);", expand_entity, text)
+    text = html.escape(text)
+
+    for plugin in ctx.active_plugins[::-1]:
+        text = config.plugins[plugin].after_render_text(text)
+
+    return text
+
+def render_emphasis(emphasis: Emphasis, ctx: RenderContext, config: FFMLConfig) -> str:
     marker = emphasis.marker
-    content = render_para_content(emphasis.content, config)
+    content = render_para_content(emphasis.content, ctx, config)
 
     return config.emphasis_types[marker].replace("{{content}}", content)
 
