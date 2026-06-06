@@ -21,7 +21,7 @@ usage: render.py [-h] [--output OUTPUT] [--output-dir OUTPUT_DIR]
                  [--stat]
                  [source]
 
-Render an AST to HTML
+Render FFML to HTML
 
 positional arguments:
   source                input file; reads from stdin if omitted

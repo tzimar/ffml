@@ -537,7 +537,7 @@ def calc_stats(ast: OutlineBlock) -> WordStatistics:
     return stats
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Render an AST to HTML")
+    parser = argparse.ArgumentParser(description="Render FFML to HTML")
     parser.add_argument(
         "source", nargs="?", help="input file; reads from stdin if omitted"
     )
