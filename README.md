@@ -1,5 +1,7 @@
 # FFML
 
+> This project has been replaced by https://github.com/tzimar/ffml-ts
+
 FFML is a simple markup language combining aspects of BBCode and Markdown, designed for writing fanfics in a format that's flexible but that remains 'plain'. 
 
 * Readable formatting (`*italics*`, `**bold**`, `_underline_`, `~strikethrough~`, `$small caps$`)
